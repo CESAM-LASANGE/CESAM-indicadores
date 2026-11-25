@@ -2,12 +2,20 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FichaMunicipal } from "@/components/FichaMunicipal";
-import { CoberturaOficial, ResumoMunicipio } from "@/components/municipio/ResumoMunicipio";
+import { CoberturaOficial, LocalizacaoMunicipio, PrestadorAgua } from "@/components/municipio/ResumoMunicipio";
 import { TEMA_ORDEM, notaDoModulo, temaConfig } from "@/components/municipio/fichaConfig";
 import { ScoreBar } from "@/components/ui/ScoreBar";
-import { fetchApi, fetchApiSafe, type IndicadoresMunicipio, type InstitucionalMunicipio, type Municipio } from "@/lib/api";
+import {
+  fetchApi,
+  ApiError,
+  fetchApiResult,
+  type IndicadoresMunicipio,
+  type InstitucionalMunicipio,
+  type Municipio,
+  type ValorIndicador,
+} from "@/lib/api";
 import { formatarArea, formatarNota, formatarPopulacao } from "@/lib/formatters";
-import { ANO_RANKING_SANEAMENTO, obterRankingSaneamento } from "@/lib/rankingSaneamento";
+import { ANO_RANKING_SANEAMENTO, obterRankingSaneamento, type RankingSaneamentoItem } from "@/lib/rankingSaneamento";
 
 type Props = {
   params: Promise<{ codigo_ibge: string }>;
@@ -31,23 +39,125 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 }
 
+function CabecalhoFicha({
+  municipio,
+  anoMaisAntigo,
+  anoMaisRecente,
+}: {
+  municipio: Municipio;
+  anoMaisAntigo: number | null;
+  anoMaisRecente: number | null;
+}) {
+  const itens: Array<{ rotulo: string; valor: string; unidade?: string; mono?: boolean }> = [
+    { rotulo: "Código IBGE", valor: municipio.codigo_ibge, mono: true },
+    { rotulo: "População", valor: formatarPopulacao(municipio.populacao), unidade: municipio.populacao ? "hab." : undefined, mono: true },
+    { rotulo: "Área", valor: formatarArea(municipio.area_km2), unidade: municipio.area_km2 ? "km²" : undefined, mono: true },
+    { rotulo: "Série", valor: anoMaisAntigo && anoMaisRecente ? `${anoMaisAntigo}–${anoMaisRecente}` : "—", mono: true },
+  ];
+
+  return (
+    <div className="min-w-0">
+      <p className="eyebrow">Ficha municipal</p>
+      <h1 className="t-h1 mt-3 text-ms-ink">{municipio.nome}</h1>
+      {/* PG-03.2 Metadados em uma linha, no lugar dos cards */}
+      <dl className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+        {itens.map((item, indice) => (
+          <div key={item.rotulo} className="flex items-center gap-1.5">
+            {indice > 0 ? <span className="mr-2.5 hidden h-3.5 w-px bg-ms-line-strong sm:inline-block" aria-hidden="true" /> : null}
+            <dt className="text-ms-muted">{item.rotulo}</dt>
+            <dd className="text-ms-ink">
+              <span className={item.mono ? "font-data" : undefined}>{item.valor}</span>
+              {item.unidade ? <span className="ml-1 text-xs text-ms-muted">{item.unidade}</span> : null}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+/** PG-03.3 Faixa de notas: mesma nota do ranking (ADR-001), uma célula por dimensão. */
+function FaixaNotas({
+  rankingItem,
+  totalMunicipios,
+  anoRanking,
+  indicadores,
+}: {
+  rankingItem: RankingSaneamentoItem | null;
+  totalMunicipios: number;
+  anoRanking: number;
+  indicadores: ValorIndicador[];
+}) {
+  return (<section aria-label={`Notas de saneamento ${anoRanking}`} className="overflow-hidden rounded-md border border-ms-line bg-ms-surface">
+            {rankingItem ? (
+              <ul className="grid grid-cols-2 gap-px bg-ms-line sm:grid-cols-3 lg:grid-cols-[minmax(0,1.15fr)_repeat(5,minmax(0,1fr))]">
+                <li className="col-span-2 grid content-start gap-1 bg-ms-sky/60 p-3.5 sm:col-span-1">
+                  <p className="t-label text-ms-navy">Nota geral {rankingItem.ano}</p>
+                  <p className="flex items-baseline gap-1">
+                    <span className="t-data-lg text-ms-navy">{formatarNota(rankingItem.nota)}</span>
+                    <span className="text-xs text-ms-muted">de 100</span>
+                  </p>
+                  <p className="text-xs font-semibold text-ms-ink">
+                    {rankingItem.posicao}º de {totalMunicipios} municípios
+                  </p>
+                </li>
+                {TEMA_ORDEM.map((tema) => {
+                  const config = temaConfig(tema);
+                  const Icon = config.icon;
+                  const nota = notaDoModulo(rankingItem, tema);
+                  return (
+                    // No celular (2 colunas), a última dimensão ocupa a linha inteira para não sobrar célula vazia.
+                    <li key={tema} className={`grid content-start gap-2 bg-ms-surface p-3.5 ${tema === TEMA_ORDEM[TEMA_ORDEM.length - 1] ? "col-span-2 sm:col-span-1" : ""}`}>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded ${config.bgClass} text-white`}>
+                          <Icon className="h-3 w-3" strokeWidth={2} aria-hidden="true" />
+                        </span>
+                        <span className="t-label text-ms-muted">{config.nomeCurto}</span>
+                      </span>
+                      <span className="font-data text-lg font-medium text-ms-ink">{formatarNota(nota)}</span>
+                      <ScoreBar valor={nota} cor={config.cor} className="w-full" />
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="p-4 text-sm text-ms-muted">
+                Sem nota geral oficial em {anoRanking}: o município não tem indicadores oficiais suficientes nesse ano.
+              </p>
+            )}
+            {/* PG-03.3.1 Cobertura oficial no rodapé, discreta */}
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-ms-line bg-ms-surface-muted px-3.5 py-2">
+              <CoberturaOficial indicadores={indicadores} />
+              <p className="text-xs text-ms-muted">
+                Indicadores oficiais de {rankingItem?.ano ?? anoRanking} ·{" "}
+                <Link href="/metodologia" className="font-semibold text-ms-blue hover:underline">
+                  Como calculamos
+                </Link>
+              </p>
+            </div>
+          </section>
+  );
+}
+
 export default async function MunicipioDetalhePage({ params }: Props) {
   const { codigo_ibge } = await params;
   let dados: IndicadoresMunicipio;
-  let institucional: InstitucionalMunicipio;
+  let institucionalResult: { data: InstitucionalMunicipio; disponivel: boolean };
 
   try {
-    [dados, institucional] = await Promise.all([
+    [dados, institucionalResult] = await Promise.all([
       fetchApi<IndicadoresMunicipio>(`/municipios/${codigo_ibge}/indicadores`),
-      fetchApiSafe<InstitucionalMunicipio>(`/municipios/${codigo_ibge}/institucional`, {
+      fetchApiResult<InstitucionalMunicipio>(`/municipios/${codigo_ibge}/institucional`, {
         atendimento_agua: null,
         recursos: [],
       }),
     ]);
-  } catch {
-    notFound();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) notFound();
+    throw error;
   }
 
+  const institucional = institucionalResult.data;
   const ranking = await obterRankingSaneamento();
   const { municipio, indicadores } = dados;
   const rankingItem = ranking.find((item) => item.codigo_ibge === municipio.codigo_ibge) ?? null;
@@ -55,6 +165,7 @@ export default async function MunicipioDetalhePage({ params }: Props) {
   const anos = Array.from(new Set(indicadores.map((valor) => valor.ano))).sort((a, b) => b - a);
   const anoMaisRecente = anos[0] ?? null;
   const anoMaisAntigo = anos[anos.length - 1] ?? null;
+  const notasMapa = Object.fromEntries(ranking.map((item) => [item.codigo_ibge, item.nota]));
 
   return (
     <div className="mx-auto max-w-7xl px-4 pt-6 md:px-6 md:pt-8 lg:px-8">
@@ -72,96 +183,23 @@ export default async function MunicipioDetalhePage({ params }: Props) {
         </span>
       </nav>
 
-      <div className="mt-4 grid gap-6 pb-8 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="grid content-start gap-6">
-          <div>
-            <p className="eyebrow">Ficha municipal</p>
-            <h1 className="t-h1 mt-3 text-ms-ink">{municipio.nome}</h1>
-            {/* PG-03.2 Metadados em uma linha, no lugar dos cards */}
-            <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm">
-              <div className="flex gap-1.5">
-                <dt className="text-ms-muted">Código IBGE</dt>
-                <dd className="font-data text-ms-ink">{municipio.codigo_ibge}</dd>
-              </div>
-              <div className="flex gap-1.5">
-                <dt className="text-ms-muted">População</dt>
-                <dd className="text-ms-ink">
-                  <span className="font-data">{formatarPopulacao(municipio.populacao)}</span>
-                  {municipio.populacao ? <span className="ml-1 text-xs text-ms-muted">hab.</span> : null}
-                </dd>
-              </div>
-              <div className="flex gap-1.5">
-                <dt className="text-ms-muted">Área</dt>
-                <dd className="text-ms-ink">
-                  <span className="font-data">{formatarArea(municipio.area_km2)}</span>
-                  {municipio.area_km2 ? <span className="ml-1 text-xs text-ms-muted">km²</span> : null}
-                </dd>
-              </div>
-              <div className="flex gap-1.5">
-                <dt className="text-ms-muted">Série</dt>
-                <dd className="font-data text-ms-ink">
-                  {anoMaisAntigo && anoMaisRecente ? `${anoMaisAntigo}–${anoMaisRecente}` : "—"}
-                </dd>
-              </div>
-            </dl>
-          </div>
-
-          {/* PG-03.3 Faixa de notas: mesma nota do ranking (ADR-001) */}
-          <section aria-label={`Notas de saneamento ${anoRanking}`} className="rounded-md border border-ms-line bg-ms-surface">
-            {rankingItem ? (
-              <div className="grid divide-y divide-ms-line md:grid-cols-[13rem_minmax(0,1fr)] md:divide-x md:divide-y-0">
-                <div className="grid content-center gap-1 p-4">
-                  <p className="t-label text-ms-muted">Nota geral {rankingItem.ano}</p>
-                  <p className="flex items-baseline gap-1.5">
-                    <span className="t-data-lg text-ms-ink">{formatarNota(rankingItem.nota)}</span>
-                    <span className="text-xs text-ms-muted">de 100</span>
-                  </p>
-                  <p className="text-[13px] text-ms-muted">
-                    {rankingItem.posicao}º de {ranking.length} municípios
-                  </p>
-                </div>
-                <ul className="grid grid-cols-2 gap-x-4 gap-y-3 p-4 sm:grid-cols-3 xl:grid-cols-5">
-                  {TEMA_ORDEM.map((tema) => {
-                    const config = temaConfig(tema);
-                    const Icon = config.icon;
-                    const nota = notaDoModulo(rankingItem, tema);
-                    return (
-                      <li key={tema} className="grid content-start gap-1.5">
-                        <span className="inline-flex items-center gap-1.5 text-[13px] text-ms-ink">
-                          <Icon className={`h-4 w-4 ${config.textClass}`} strokeWidth={1.75} aria-hidden="true" />
-                          {config.nomeCurto}
-                        </span>
-                        <span className="font-data text-lg font-medium text-ms-ink">{formatarNota(nota)}</span>
-                        <ScoreBar valor={nota} cor={config.cor} className="w-full max-w-24" />
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ) : (
-              <p className="p-4 text-sm text-ms-muted">
-                Sem nota geral oficial em {anoRanking}: o município não tem indicadores oficiais suficientes nesse ano.
-              </p>
-            )}
-            <p className="border-t border-ms-line px-4 py-2 text-xs text-ms-muted">
-              Notas de 0 a 100 do ranking do Observatório, com indicadores oficiais de {rankingItem?.ano ?? anoRanking}.{" "}
-              <Link href="/metodologia" className="font-semibold text-ms-blue hover:underline">
-                Como calculamos
-              </Link>
-            </p>
-          </section>
-
-          <CoberturaOficial indicadores={indicadores} />
-        </div>
-
-        <ResumoMunicipio municipio={municipio} atendimento={institucional.atendimento_agua} />
-      </div>
-
       <FichaMunicipal
         municipio={municipio}
         indicadores={indicadores}
         recursos={institucional.recursos}
         rankingItem={rankingItem}
+        cabecalho={<CabecalhoFicha municipio={municipio} anoMaisAntigo={anoMaisAntigo} anoMaisRecente={anoMaisRecente} />}
+        faixaNotas={
+          <FaixaNotas rankingItem={rankingItem} totalMunicipios={ranking.length} anoRanking={anoRanking} indicadores={indicadores} />
+        }
+        prestador={
+          <PrestadorAgua
+            municipio={municipio}
+            atendimento={institucional.atendimento_agua}
+            institucionalDisponivel={institucionalResult.disponivel}
+          />
+        }
+        localizacao={<LocalizacaoMunicipio municipio={municipio} notas={notasMapa} anoNotas={anoRanking} />}
       />
     </div>
   );
