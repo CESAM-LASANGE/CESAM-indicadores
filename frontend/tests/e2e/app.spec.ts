@@ -86,8 +86,11 @@ test("ficha abre na primeira dimensão com os indicadores em destaque (ADR-007)"
   const linhasDestaque = await painel.locator("tbody tr").count();
   expect(linhasDestaque).toBeLessThanOrEqual(6);
 
-  await painel.getByRole("button", { name: /^Ver todos os \d+ indicadores de Água/ }).click();
-  expect(await painel.locator("tbody tr").count()).toBeGreaterThan(linhasDestaque);
+  // No seed e2e, Água só tem os 5 indicadores principais; Gestão municipal tem 5, dos quais 3 são principais.
+  await abas.getByRole("tab", { name: /^Gestão municipal/ }).click();
+  const linhasGestao = await painel.locator("tbody tr").count();
+  await painel.getByRole("button", { name: /^Ver todos os \d+ indicadores de Gestão municipal/ }).click();
+  expect(await painel.locator("tbody tr").count()).toBeGreaterThan(linhasGestao);
 });
 
 test.describe("celular com toque", () => {
