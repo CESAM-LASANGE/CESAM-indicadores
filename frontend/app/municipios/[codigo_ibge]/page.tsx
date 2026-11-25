@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FichaMunicipal } from "@/components/FichaMunicipal";
-import { CoberturaOficial, ResumoMunicipio } from "@/components/municipio/ResumoMunicipio";
+import { CoberturaOficial, LocalizacaoMunicipio, PrestadorAgua } from "@/components/municipio/ResumoMunicipio";
 import { TEMA_ORDEM, notaDoModulo, temaConfig } from "@/components/municipio/fichaConfig";
 import { ScoreBar } from "@/components/ui/ScoreBar";
 import {
@@ -48,37 +48,31 @@ function CabecalhoFicha({
   anoMaisAntigo: number | null;
   anoMaisRecente: number | null;
 }) {
-  return (<div className="min-w-0">
-            <p className="eyebrow">Ficha municipal</p>
-            <h1 className="t-h1 mt-3 text-ms-ink">{municipio.nome}</h1>
-            {/* PG-03.2 Metadados em uma linha, no lugar dos cards */}
-            <dl className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-sm">
-              <div className="flex gap-1.5">
-                <dt className="text-ms-muted">Código IBGE</dt>
-                <dd className="font-data text-ms-ink">{municipio.codigo_ibge}</dd>
-              </div>
-              <div className="flex gap-1.5">
-                <dt className="text-ms-muted">População</dt>
-                <dd className="text-ms-ink">
-                  <span className="font-data">{formatarPopulacao(municipio.populacao)}</span>
-                  {municipio.populacao ? <span className="ml-1 text-xs text-ms-muted">hab.</span> : null}
-                </dd>
-              </div>
-              <div className="flex gap-1.5">
-                <dt className="text-ms-muted">Área</dt>
-                <dd className="text-ms-ink">
-                  <span className="font-data">{formatarArea(municipio.area_km2)}</span>
-                  {municipio.area_km2 ? <span className="ml-1 text-xs text-ms-muted">km²</span> : null}
-                </dd>
-              </div>
-              <div className="flex basis-full gap-1.5">
-                <dt className="text-ms-muted">Série</dt>
-                <dd className="font-data text-ms-ink">
-                  {anoMaisAntigo && anoMaisRecente ? `${anoMaisAntigo}–${anoMaisRecente}` : "—"}
-                </dd>
-              </div>
-            </dl>
+  const itens: Array<{ rotulo: string; valor: string; unidade?: string; mono?: boolean }> = [
+    { rotulo: "Código IBGE", valor: municipio.codigo_ibge, mono: true },
+    { rotulo: "População", valor: formatarPopulacao(municipio.populacao), unidade: municipio.populacao ? "hab." : undefined, mono: true },
+    { rotulo: "Área", valor: formatarArea(municipio.area_km2), unidade: municipio.area_km2 ? "km²" : undefined, mono: true },
+    { rotulo: "Série", valor: anoMaisAntigo && anoMaisRecente ? `${anoMaisAntigo}–${anoMaisRecente}` : "—", mono: true },
+  ];
+
+  return (
+    <div className="min-w-0">
+      <p className="eyebrow">Ficha municipal</p>
+      <h1 className="t-h1 mt-3 text-ms-ink">{municipio.nome}</h1>
+      {/* PG-03.2 Metadados em uma linha, no lugar dos cards */}
+      <dl className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+        {itens.map((item, indice) => (
+          <div key={item.rotulo} className="flex items-center gap-1.5">
+            {indice > 0 ? <span className="mr-2.5 hidden h-3.5 w-px bg-ms-line-strong sm:inline-block" aria-hidden="true" /> : null}
+            <dt className="text-ms-muted">{item.rotulo}</dt>
+            <dd className="text-ms-ink">
+              <span className={item.mono ? "font-data" : undefined}>{item.valor}</span>
+              {item.unidade ? <span className="ml-1 text-xs text-ms-muted">{item.unidade}</span> : null}
+            </dd>
           </div>
+        ))}
+      </dl>
+    </div>
   );
 }
 
@@ -97,11 +91,14 @@ function FaixaNotas({
   return (<section aria-label={`Notas de saneamento ${anoRanking}`} className="overflow-hidden rounded-md border border-ms-line bg-ms-surface">
             {rankingItem ? (
               <ul className="grid grid-cols-2 gap-px bg-ms-line sm:grid-cols-3 lg:grid-cols-[minmax(0,1.15fr)_repeat(5,minmax(0,1fr))]">
-                <li className="col-span-2 grid content-start gap-1 bg-ms-surface p-3.5 sm:col-span-1">
-                  <p className="t-label text-ms-muted">Nota geral {rankingItem.ano}</p>
-                  <p className="t-data-lg text-ms-ink">{formatarNota(rankingItem.nota)}</p>
-                  <p className="text-xs text-ms-muted">
-                    0–100 · {rankingItem.posicao}º de {totalMunicipios}
+                <li className="col-span-2 grid content-start gap-1 bg-ms-sky/60 p-3.5 sm:col-span-1">
+                  <p className="t-label text-ms-navy">Nota geral {rankingItem.ano}</p>
+                  <p className="flex items-baseline gap-1">
+                    <span className="t-data-lg text-ms-navy">{formatarNota(rankingItem.nota)}</span>
+                    <span className="text-xs text-ms-muted">de 100</span>
+                  </p>
+                  <p className="text-xs font-semibold text-ms-ink">
+                    {rankingItem.posicao}º de {totalMunicipios} municípios
                   </p>
                 </li>
                 {TEMA_ORDEM.map((tema) => {
@@ -195,15 +192,14 @@ export default async function MunicipioDetalhePage({ params }: Props) {
         faixaNotas={
           <FaixaNotas rankingItem={rankingItem} totalMunicipios={ranking.length} anoRanking={anoRanking} indicadores={indicadores} />
         }
-        lateral={
-          <ResumoMunicipio
+        prestador={
+          <PrestadorAgua
             municipio={municipio}
             atendimento={institucional.atendimento_agua}
             institucionalDisponivel={institucionalResult.disponivel}
-            notas={notasMapa}
-            anoNotas={anoRanking}
           />
         }
+        localizacao={<LocalizacaoMunicipio municipio={municipio} notas={notasMapa} anoNotas={anoRanking} />}
       />
     </div>
   );

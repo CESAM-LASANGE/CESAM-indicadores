@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { CheckCircle2, ExternalLink, MinusCircle } from "lucide-react";
+import { CheckCircle2, Droplets, ExternalLink, MapPin, MinusCircle } from "lucide-react";
 
 import { MiniMapaMunicipio } from "@/components/MiniMapaMunicipio";
 import { calcularCobertura } from "@/components/municipio/fichaConfig";
 import { Badge } from "@/components/ui/Badge";
+import { COR_CLASSE } from "@/lib/escalaMapa";
 import type { AtendimentoAgua, Municipio, ValorIndicador } from "@/lib/api";
 import { fonteCurta, resumoAtuacao } from "@/lib/prestador";
 import { urlExternaSegura } from "@/lib/urls";
@@ -47,17 +48,14 @@ export function CoberturaOficial({ indicadores }: { indicadores: ValorIndicador[
   );
 }
 
-type Props = {
+type PrestadorProps = {
   municipio: Municipio;
   atendimento: AtendimentoAgua | null;
   institucionalDisponivel?: boolean;
-  /** Nota geral por código IBGE, para colorir o minimapa. */
-  notas?: Record<string, number>;
-  anoNotas?: number;
 };
 
-/** Card lateral único da ficha: prestador de água + minimapa (PG-03.12). */
-export function ResumoMunicipio({ municipio, atendimento, institucionalDisponivel = true, notas, anoNotas }: Props) {
+/** Faixa do prestador de água (PG-03.12): uma linha horizontal abaixo das notas. */
+export function PrestadorAgua({ municipio, atendimento, institucionalDisponivel = true }: PrestadorProps) {
   const prestador = !institucionalDisponivel
     ? "Dados institucionais indisponíveis"
     : atendimento
@@ -76,18 +74,24 @@ export function ResumoMunicipio({ municipio, atendimento, institucionalDisponive
   const mapsUrl = urlExternaSegura(atendimento?.maps_url);
 
   return (
-    <aside
-      className="self-start overflow-hidden rounded-md border border-ms-line bg-ms-surface"
-      aria-label="Prestador e localização"
+    <section
+      aria-label="Prestador de água"
+      className="flex flex-col gap-3 rounded-md border border-ms-line bg-ms-surface p-4 sm:flex-row sm:items-center sm:gap-4"
     >
-      <div className="p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+      <span
+        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-ms-sky text-dim-agua"
+        aria-hidden="true"
+      >
+        <Droplets className="h-5 w-5" strokeWidth={1.75} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
           <p className="t-label text-ms-muted">{gestaoMunicipal ? "Serviço municipal de água" : "Prestador de água"}</p>
           {gestaoMunicipal ? <Badge variante="official">Gestão municipal</Badge> : null}
         </div>
-        <p className="mt-1.5 text-sm font-semibold text-ms-ink [overflow-wrap:anywhere]">{prestador}</p>
+        <p className="mt-0.5 text-sm font-semibold text-ms-ink [overflow-wrap:anywhere]">{prestador}</p>
         {resumo.length ? (
-          <p className="mt-1 text-[13px] text-ms-muted" title={[atendimento?.area_atuacao, atendimento?.fonte].filter(Boolean).join(" · ")}>
+          <p className="mt-0.5 text-[13px] text-ms-muted" title={[atendimento?.area_atuacao, atendimento?.fonte].filter(Boolean).join(" · ")}>
             {resumo.join(" · ")}
           </p>
         ) : null}
@@ -96,50 +100,83 @@ export function ResumoMunicipio({ municipio, atendimento, institucionalDisponive
           <p>{endereco ?? "Endereço local não confirmado em fonte institucional."}</p>
           <p>Fonte: {atendimento?.fonte ?? "não informada"}</p>
         </div>
-        {atendimento && (siteUrl || mapsUrl) ? (
-          <div className="no-print mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-[13px] font-semibold text-ms-blue">
-            {siteUrl ? (
-              <a href={siteUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:underline">
-                {atendimento.site_label || "Site do prestador"}
-                <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
-                <span className="sr-only">(abre em nova aba)</span>
-              </a>
-            ) : null}
-            {mapsUrl ? (
-              <a
-                href={mapsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={endereco ?? undefined}
-                className="inline-flex items-center gap-1 hover:underline"
-              >
-                Ver no mapa
-                <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
-                <span className="sr-only">{endereco ? `: ${endereco}` : ""} (abre em nova aba)</span>
-              </a>
-            ) : null}
-          </div>
-        ) : null}
       </div>
-      <div className="flex items-center gap-3 border-t border-ms-line px-3 py-3">
-        <div className="w-[58%] shrink-0">
-          <MiniMapaMunicipio codigoIbge={municipio.codigo_ibge} municipio={municipio.nome} notas={notas} className="block h-28 w-full" />
-        </div>
-        <div className="grid gap-1 text-[13px] leading-snug">
-          <p className="text-ms-muted">Mato Grosso do Sul</p>
-          <p className="text-ms-ink">
-            <span className="font-semibold">{municipio.nome}</span> destacado
-          </p>
-          {notas && anoNotas ? (
-            <p className="text-xs text-ms-muted">
-              Cor pela{" "}
-              <Link href="/metodologia" className="font-semibold text-ms-blue hover:underline">
-                nota geral {anoNotas}
-              </Link>
-            </p>
+      {atendimento && (siteUrl || mapsUrl) ? (
+        <div className="no-print flex shrink-0 flex-wrap gap-2">
+          {siteUrl ? (
+            <a
+              href={siteUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ms-line-strong px-2.5 text-[13px] font-semibold text-ms-ink hover:border-ms-blue hover:text-ms-blue"
+            >
+              {atendimento.site_label || "Site do prestador"}
+              <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+              <span className="sr-only">(abre em nova aba)</span>
+            </a>
+          ) : null}
+          {mapsUrl ? (
+            <a
+              href={mapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={endereco ?? undefined}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ms-line-strong px-2.5 text-[13px] font-semibold text-ms-ink hover:border-ms-blue hover:text-ms-blue"
+            >
+              <MapPin className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+              Endereço no mapa
+              <span className="sr-only">{endereco ? `: ${endereco}` : ""} (abre em nova aba)</span>
+            </a>
           ) : null}
         </div>
+      ) : null}
+    </section>
+  );
+}
+
+type LocalizacaoProps = {
+  municipio: Municipio;
+  /** Nota geral por código IBGE, para colorir o minimapa. */
+  notas?: Record<string, number>;
+  anoNotas?: number;
+};
+
+const LEGENDA_CLASSES = [1, 2, 3, 4, 5] as const;
+
+/** Card de localização: minimapa na altura das notas + legenda compacta (PG-03.12). */
+export function LocalizacaoMunicipio({ municipio, notas, anoNotas }: LocalizacaoProps) {
+  return (
+    <aside
+      aria-label="Localização no estado"
+      className="flex h-full flex-col overflow-hidden rounded-md border border-ms-line bg-ms-surface"
+    >
+      <div className="px-4 pt-3">
+        <p className="t-label text-ms-muted">Localização</p>
+        <p className="mt-0.5 text-sm font-semibold text-ms-ink">{municipio.nome} · Mato Grosso do Sul</p>
       </div>
+      {/* O mapa ocupa a altura que sobra: o card acompanha a coluna das notas, sem espaço vazio. */}
+      <div className="relative min-h-40 flex-1">
+        <MiniMapaMunicipio
+          codigoIbge={municipio.codigo_ibge}
+          municipio={municipio.nome}
+          notas={notas}
+          className="absolute inset-0 block h-full w-full p-2"
+        />
+      </div>
+      {notas && anoNotas ? (
+        <div className="flex items-center gap-1.5 border-t border-ms-line bg-ms-surface-muted px-4 py-2 text-xs text-ms-muted">
+          <Link href="/metodologia" className="font-semibold text-ms-blue hover:underline">
+            Nota geral {anoNotas}
+          </Link>
+          <span className="ml-auto font-data">0</span>
+          <span className="flex" aria-hidden="true">
+            {LEGENDA_CLASSES.map((classe) => (
+              <span key={classe} className="h-2.5 w-4" style={{ background: COR_CLASSE[classe] }} />
+            ))}
+          </span>
+          <span className="font-data">100</span>
+        </div>
+      ) : null}
     </aside>
   );
 }

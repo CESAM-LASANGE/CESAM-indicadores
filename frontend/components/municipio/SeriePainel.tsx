@@ -3,7 +3,6 @@
 import { Info, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { temaConfig } from "@/components/municipio/fichaConfig";
-import { BadgeFonte } from "@/components/ui/Badge";
 import { Delta } from "@/components/ui/Delta";
 import { Valor } from "@/components/ui/Valor";
 import type { Indicador } from "@/lib/api";
@@ -55,10 +54,25 @@ export function escalaEixo(valores: number[], unidade: string | null | undefined
   return { min, max, ticks };
 }
 
+/** Largura real do contêiner, para o SVG usar 1 unidade = 1 px e o texto não encolher no celular. */
+function useLargura<T extends HTMLElement>(inicial: number) {
+  const ref = useRef<T>(null);
+  const [largura, setLargura] = useState(inicial);
+  useEffect(() => {
+    const elemento = ref.current;
+    if (!elemento) return;
+    const observador = new ResizeObserver(([entrada]) => setLargura(Math.round(entrada.contentRect.width)));
+    observador.observe(elemento);
+    return () => observador.disconnect();
+  }, []);
+  return [ref, largura] as const;
+}
+
 function GraficoSerie({ pontos, indicador, cor }: { pontos: PontoHistorico[]; indicador: Indicador; cor: string }) {
-  const largura = 380;
-  const altura = 200;
-  const margem = { top: 26, right: 12, bottom: 28, left: 44 };
+  const [ref, larguraMedida] = useLargura<HTMLDivElement>(560);
+  const largura = Math.max(280, larguraMedida);
+  const altura = largura < 480 ? 210 : 250;
+  const margem = { top: 30, right: 16, bottom: 30, left: 44 };
   const areaL = largura - margem.left - margem.right;
   const areaA = altura - margem.top - margem.bottom;
   const { min, max, ticks } = escalaEixo(
@@ -68,7 +82,14 @@ function GraficoSerie({ pontos, indicador, cor }: { pontos: PontoHistorico[]; in
   const x = (indice: number) => margem.left + (indice / Math.max(1, pontos.length - 1)) * areaL;
   const y = (valor: number) => margem.top + ((max - valor) / (max - min || 1)) * areaA;
   const linha = pontos.map((ponto, indice) => `${indice === 0 ? "M" : "L"}${x(indice).toFixed(1)} ${y(ponto.valor).toFixed(1)}`).join(" ");
-  const intervaloAno = Math.max(1, Math.ceil(pontos.length / 6));
+  const base = y(Math.max(min, 0));
+  const area = `${linha} L${x(pontos.length - 1).toFixed(1)} ${base.toFixed(1)} L${x(0).toFixed(1)} ${base.toFixed(1)} Z`;
+  const maxRotulos = Math.max(3, Math.floor(areaL / 64));
+  const intervaloAno = Math.max(1, Math.ceil(pontos.length / maxRotulos));
+  const ultimoIndice = pontos.length - 1;
+  // Rótulo de ano a cada intervalo; o último sempre aparece e o vizinho anterior some se ficar colado nele.
+  const mostrarAno = (indice: number) =>
+    indice === ultimoIndice || (indice % intervaloAno === 0 && ultimoIndice - indice >= Math.max(1, intervaloAno * 0.6));
   const troca = anoTrocaDeFonte(pontos);
   const indiceTroca = troca === null ? -1 : pontos.findIndex((ponto) => ponto.ano === troca);
   const casas = ehPercentual(indicador.unidade) ? 0 : 1;
@@ -78,60 +99,73 @@ function GraficoSerie({ pontos, indicador, cor }: { pontos: PontoHistorico[]; in
     const formatado = formatarValor(valor, indicador.unidade);
     return formatado.unidade ? `${formatado.numero} ${formatado.unidade}` : formatado.numero;
   };
+  const xTroca = indiceTroca > 0 ? (x(indiceTroca) + x(indiceTroca - 1)) / 2 : null;
+  const xUltimo = x(pontos.length - 1);
+  const yUltimo = y(ultimo.valor);
 
   return (
+    <div ref={ref} className="w-full">
     <svg
       viewBox={`0 0 ${largura} ${altura}`}
-      className="h-auto w-full"
+      width={largura}
+      height={altura}
+      className="block h-auto w-full"
       role="img"
       aria-label={`${indicador.nome}: ${texto(primeiro.valor)} em ${primeiro.ano} e ${texto(ultimo.valor)} em ${ultimo.ano}.`}
     >
-      <text x={4} y={10} className="fill-ms-muted text-[10px]">
-        {indicador.unidade ?? ""}
-      </text>
+      {/* Período SINISA destacado como faixa de fundo, com o rótulo de cada fonte no topo */}
+      {xTroca !== null ? (
+        <g>
+          <rect
+            x={xTroca}
+            y={margem.top}
+            width={largura - margem.right - xTroca}
+            height={areaA}
+            fill="var(--sem-positive-bg)"
+            opacity={0.7}
+          />
+          <line x1={xTroca} x2={xTroca} y1={margem.top - 4} y2={margem.top + areaA} stroke="var(--color-line-strong)" strokeDasharray="3 3" />
+          <text x={margem.left} y={margem.top - 10} className="fill-ms-muted text-[11px] font-semibold">
+            ← SNIS
+          </text>
+          <text x={largura - margem.right} y={margem.top - 10} textAnchor="end" className="fill-sem-positive text-[11px] font-semibold">
+            SINISA {troca}–{ultimo.ano} →
+          </text>
+        </g>
+      ) : null}
       {ticks.map((tick) => (
         <g key={tick}>
           <line x1={margem.left} x2={largura - margem.right} y1={y(tick)} y2={y(tick)} stroke="var(--color-line)" />
-          <text x={margem.left - 6} y={y(tick) + 3.5} textAnchor="end" className="fill-ms-muted font-data text-[10px]">
+          <text x={margem.left - 8} y={y(tick) + 4} textAnchor="end" className="fill-ms-muted font-data text-[11px]">
             {formatarNumero(tick, casas, false)}
           </text>
         </g>
       ))}
-      {indiceTroca > 0
-        ? (() => {
-            const xTroca = (x(indiceTroca) + x(indiceTroca - 1)) / 2;
-            // Perto da borda direita, "SINISA" sobe uma linha e se alinha à borda para não ser cortado.
-            const pertoDaBorda = xTroca + 36 > largura;
-            return (
-              <g>
-                <line x1={xTroca} x2={xTroca} y1={margem.top - 6} y2={margem.top + areaA} stroke="var(--color-muted)" strokeDasharray="3 3" />
-                <text x={xTroca - 4} y={margem.top - 8} textAnchor="end" className="fill-ms-muted text-[9px]">
-                  SNIS
-                </text>
-                <text
-                  x={pertoDaBorda ? largura - 1 : xTroca + 4}
-                  y={pertoDaBorda ? margem.top - 18 : margem.top - 8}
-                  textAnchor={pertoDaBorda ? "end" : "start"}
-                  className="fill-ms-muted text-[9px]"
-                >
-                  SINISA
-                </text>
-              </g>
-            );
-          })()
-        : null}
-      <path d={linha} fill="none" stroke={cor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <path d={area} fill={cor} opacity={0.08} />
+      <path d={linha} fill="none" stroke={cor} strokeWidth={2.25} strokeLinecap="round" strokeLinejoin="round" />
       {pontos.map((ponto, indice) => (
         <g key={ponto.ano}>
-          <circle cx={x(indice)} cy={y(ponto.valor)} r={indice === pontos.length - 1 ? 3.5 : 2.5} fill={cor} />
-          {indice % intervaloAno === 0 || indice === pontos.length - 1 ? (
-            <text x={x(indice)} y={altura - 8} textAnchor="middle" className="fill-ms-muted font-data text-[10px]">
+          <circle cx={x(indice)} cy={y(ponto.valor)} r={indice === pontos.length - 1 ? 4.5 : 2.5} fill={indice === pontos.length - 1 ? cor : "var(--color-surface)"} stroke={cor} strokeWidth={1.5}>
+            <title>{`${ponto.ano}: ${texto(ponto.valor)}`}</title>
+          </circle>
+          {mostrarAno(indice) ? (
+            <text
+              x={x(indice)}
+              y={altura - 8}
+              textAnchor={indice === ultimoIndice ? "end" : indice === 0 ? "start" : "middle"}
+              className="fill-ms-muted font-data text-[11px]"
+            >
               {ponto.ano}
             </text>
           ) : null}
         </g>
       ))}
+      {/* Rótulo do último valor, acima do ponto */}
+      <text x={Math.min(xUltimo, largura - margem.right)} y={Math.max(yUltimo - 12, 12)} textAnchor="end" className="fill-ms-ink font-data text-[12px] font-medium">
+        {formatarValor(ultimo.valor, indicador.unidade).numero}
+      </text>
     </svg>
+    </div>
   );
 }
 
@@ -142,40 +176,27 @@ type Props = {
   onFechar: () => void;
 };
 
-const CONSULTA_LADO_A_LADO = "(min-width: 1280px)";
-
-/** Verdadeiro quando a série cabe ao lado da tabela (PG-03.11). */
-function useLadoALado(): boolean {
-  const [ladoALado, setLadoALado] = useState(() => typeof window !== "undefined" && window.matchMedia(CONSULTA_LADO_A_LADO).matches);
-  useEffect(() => {
-    const consulta = window.matchMedia(CONSULTA_LADO_A_LADO);
-    const aoMudar = () => setLadoALado(consulta.matches);
-    consulta.addEventListener("change", aoMudar);
-    return () => consulta.removeEventListener("change", aoMudar);
-  }, []);
-  return ladoALado;
-}
-
 /**
- * CP-10 / PG-03.11: card ao lado da tabela no desktop largo (sem fundo escurecido, fixo ao rolar);
- * abaixo de 1280 px, painel modal (lateral no tablet, tela cheia no celular).
+ * CP-10 / PG-03.11: painel lateral modal (640 px no desktop, tela cheia no celular),
+ * aberto por clique no minigráfico; Esc fecha e devolve o foco.
  */
 export function SeriePainel({ indicador, municipio, pontos, onFechar }: Props) {
   const tituloId = useId();
   const painelRef = useRef<HTMLDivElement>(null);
-  const ladoALado = useLadoALado();
   const config = temaConfig(indicador.tema);
   const Icone = config.icon;
   const primeiro = pontos[0];
   const ultimo = pontos[pontos.length - 1];
   const troca = anoTrocaDeFonte(pontos);
   const unidade = unidadeExibicao(indicador.unidade);
+  const minimo = pontos.reduce((menor, ponto) => (ponto.valor < menor.valor ? ponto : menor), primeiro);
+  const maximo = pontos.reduce((maior, ponto) => (ponto.valor > maior.valor ? ponto : maior), primeiro);
 
   useEffect(() => {
     const anterior = document.activeElement as HTMLElement | null;
-    painelRef.current?.focus({ preventScroll: ladoALado });
+    painelRef.current?.focus();
     const overflowAnterior = document.body.style.overflow;
-    if (!ladoALado) document.body.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
 
     function aoTeclar(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -183,8 +204,7 @@ export function SeriePainel({ indicador, municipio, pontos, onFechar }: Props) {
         onFechar();
         return;
       }
-      // Modal prende o foco; o card ao lado da tabela não (não é modal).
-      if (ladoALado || event.key !== "Tab" || !painelRef.current) return;
+      if (event.key !== "Tab" || !painelRef.current) return;
       const focaveis = painelRef.current.querySelectorAll<HTMLElement>("button, a[href], [tabindex]:not([tabindex='-1'])");
       if (focaveis.length === 0) return;
       const primeiroFocavel = focaveis[0];
@@ -204,33 +224,55 @@ export function SeriePainel({ indicador, municipio, pontos, onFechar }: Props) {
       document.body.style.overflow = overflowAnterior;
       anterior?.focus({ preventScroll: true });
     };
-  }, [onFechar, ladoALado]);
+  }, [onFechar]);
+
+  const resumo: Array<{ rotulo: string; conteudo: React.ReactNode }> = [
+    {
+      rotulo: String(primeiro.ano),
+      conteudo: <Valor valor={primeiro.valor} unidade={indicador.unidade} numeroClassName="text-lg font-medium" />,
+    },
+    {
+      rotulo: String(ultimo.ano),
+      conteudo: <Valor valor={ultimo.valor} unidade={indicador.unidade} numeroClassName="text-lg font-medium" />,
+    },
+    {
+      rotulo: `Variação ${primeiro.ano}–${ultimo.ano}`,
+      conteudo: (
+        <Delta
+          variacao={ultimo.valor - primeiro.valor}
+          sentido={indicador.sentido}
+          unidade={indicador.unidade}
+          desde={primeiro.ano}
+          mostrarAvaliacao
+          className="text-sm"
+        />
+      ),
+    },
+  ];
 
   return (
     <>
-      {!ladoALado ? <div className="no-print fixed inset-0 z-50 bg-ms-ink/30" aria-hidden="true" onClick={onFechar} /> : null}
+      <div className="painel-fundo no-print fixed inset-0 z-50 bg-ms-ink/40" aria-hidden="true" onClick={onFechar} />
       <div
         ref={painelRef}
         role="dialog"
-        aria-modal={!ladoALado}
+        aria-modal="true"
         aria-labelledby={tituloId}
         tabIndex={-1}
-        className={
-          ladoALado
-            ? "no-print sticky top-[calc(var(--header-h)+5.5rem)] flex max-h-[calc(100vh-var(--header-h)-7rem)] flex-col overflow-y-auto rounded-md border border-ms-line bg-ms-surface shadow-e2 outline-none"
-            : "painel-lateral no-print fixed inset-0 z-50 flex flex-col overflow-y-auto bg-ms-surface shadow-e2 outline-none sm:left-auto sm:w-[420px] sm:border-l sm:border-ms-line"
-        }
+        className="painel-lateral no-print fixed inset-0 z-50 flex flex-col overflow-y-auto overflow-x-hidden bg-ms-surface shadow-e2 outline-none sm:left-auto sm:w-[min(640px,92vw)] sm:border-l sm:border-ms-line"
       >
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-ms-line bg-ms-surface px-4 py-3">
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-ms-line bg-ms-surface px-5 py-4 sm:px-6">
           <div className="min-w-0">
-            <p className="eyebrow inline-flex items-center gap-1.5">
-              <Icone className={`h-3.5 w-3.5 ${config.textClass}`} strokeWidth={1.75} aria-hidden="true" />
+            <p className="inline-flex items-center gap-2 text-xs font-semibold text-ms-muted">
+              <span className={`inline-flex h-5 w-5 items-center justify-center rounded text-white ${config.bgClass}`}>
+                <Icone className="h-3 w-3" strokeWidth={2} aria-hidden="true" />
+              </span>
               Série histórica · {indicador.tema}
             </p>
-            <h2 id={tituloId} className="mt-1 text-base font-semibold leading-snug text-ms-ink">
+            <h2 id={tituloId} className="mt-1.5 font-sans text-lg font-semibold leading-snug tracking-normal text-ms-ink">
               {indicador.nome}
             </h2>
-            <p className="mt-0.5 text-xs text-ms-muted">
+            <p className="mt-0.5 text-[13px] text-ms-muted">
               {municipio} · {primeiro.ano}–{ultimo.ano}
               {unidade ? ` · ${unidade}` : ""}
               {indicador.sentido === "menor_melhor" ? " · menor é melhor" : ""}
@@ -246,69 +288,80 @@ export function SeriePainel({ indicador, municipio, pontos, onFechar }: Props) {
           </button>
         </div>
 
-        <dl className="grid grid-cols-3 divide-x divide-ms-line border-b border-ms-line">
-          <div className="grid gap-1 px-4 py-3">
-            <dt className="text-xs text-ms-muted">{primeiro.ano}</dt>
-            <dd>
-              <Valor valor={primeiro.valor} unidade={indicador.unidade} numeroClassName="text-base font-medium" />
-            </dd>
-          </div>
-          <div className="grid gap-1 px-4 py-3">
-            <dt className="text-xs text-ms-muted">{ultimo.ano}</dt>
-            <dd>
-              <Valor valor={ultimo.valor} unidade={indicador.unidade} numeroClassName="text-base font-medium" />
-            </dd>
-          </div>
-          <div className="grid gap-1 px-4 py-3">
-            <dt className="text-xs text-ms-muted">Variação</dt>
-            <dd>
-              <Delta
-                variacao={ultimo.valor - primeiro.valor}
-                sentido={indicador.sentido}
-                unidade={indicador.unidade}
-                desde={primeiro.ano}
-                mostrarAvaliacao
-                className="flex-wrap whitespace-normal"
-              />
-            </dd>
-          </div>
-        </dl>
+        <div className="grid gap-5 px-5 py-5 sm:px-6">
+          <dl className="grid grid-cols-2 overflow-hidden rounded-md border border-ms-line sm:grid-cols-3">
+            {resumo.map((item, indice) => (
+              <div
+                key={item.rotulo}
+                className={`grid content-start gap-1 px-4 py-3 ${indice > 0 ? "border-l border-ms-line" : ""} ${
+                  indice === 2 ? "col-span-2 border-l-0 border-t sm:col-span-1 sm:border-l sm:border-t-0" : ""
+                }`}
+              >
+                <dt className="t-label text-ms-muted">{item.rotulo}</dt>
+                <dd>{item.conteudo}</dd>
+              </div>
+            ))}
+          </dl>
 
-        <div className="grid gap-2 border-b border-ms-line px-4 py-3">
-          <GraficoSerie pontos={pontos} indicador={indicador} cor={config.cor} />
-          {troca ? (
-            <p className="flex items-start gap-1.5 text-xs text-ms-muted">
-              <Info className="mt-px h-3.5 w-3.5 shrink-0 text-sem-info" strokeWidth={1.75} aria-hidden="true" />
+          <figure className="grid gap-2">
+            <GraficoSerie pontos={pontos} indicador={indicador} cor={config.cor} />
+            <figcaption className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ms-muted">
               <span>
-                SNIS até {troca - 1}, SINISA a partir de {troca}. A metodologia pode mudar entre as fontes.
+                Menor valor: <span className="font-data text-ms-ink">{formatarValor(minimo.valor, indicador.unidade).numero}</span> em{" "}
+                {minimo.ano}
+              </span>
+              <span>
+                Maior valor: <span className="font-data text-ms-ink">{formatarValor(maximo.valor, indicador.unidade).numero}</span> em{" "}
+                {maximo.ano}
+              </span>
+            </figcaption>
+          </figure>
+
+          {troca ? (
+            <p className="flex items-start gap-2 rounded-md bg-sem-info-bg px-3 py-2.5 text-[13px] text-ms-navy">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-sem-info" strokeWidth={1.75} aria-hidden="true" />
+              <span>
+                Até {troca - 1} os dados vêm do SNIS Série Histórica; a partir de {troca}, do SINISA. A metodologia pode mudar entre as
+                fontes.
               </span>
             </p>
           ) : null}
-        </div>
 
-        <table className="w-full text-sm">
-          <caption className="sr-only">Valores por ano de {indicador.nome}</caption>
-          <thead className="border-b border-ms-line bg-ms-surface-muted text-left">
-            <tr>
-              <th scope="col" className="t-label px-4 py-2 text-ms-muted">Ano</th>
-              <th scope="col" className="t-label px-3 py-2 text-right text-ms-muted">Valor</th>
-              <th scope="col" className="t-label px-4 py-2 text-ms-muted">Fonte</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[...pontos].reverse().map((ponto) => (
-              <tr key={ponto.ano} className="border-b border-ms-line last:border-b-0">
-                <td className="font-data px-4 py-2 text-ms-ink">{ponto.ano}</td>
-                <td className="px-3 py-2 text-right text-ms-ink">
-                  <Valor valor={ponto.valor} unidade={indicador.unidade} />
-                </td>
-                <td className="px-4 py-2">
-                  <BadgeFonte fonte={ponto.fonte} ano={ponto.ano} curto />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+          <div>
+            <h3 className="t-label mb-2 text-ms-muted">Valores por ano</h3>
+            <div className="overflow-hidden rounded-md border border-ms-line">
+              <table className="w-full text-sm">
+                <caption className="sr-only">Valores por ano de {indicador.nome}</caption>
+                <thead className="border-b border-ms-line bg-ms-surface-muted text-left">
+                  <tr>
+                    <th scope="col" className="t-label px-4 py-2 text-ms-muted">Ano</th>
+                    <th scope="col" className="t-label px-4 py-2 text-right text-ms-muted">Valor</th>
+                    <th scope="col" className="t-label px-4 py-2 text-ms-muted">Fonte</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...pontos].reverse().map((ponto) => {
+                    const sinisa = ehFonteSinisa(ponto.fonte);
+                    return (
+                      <tr key={ponto.ano} className="border-b border-ms-line last:border-b-0 even:bg-ms-surface-muted/60">
+                        <td className="font-data px-4 py-1.5 text-ms-ink">{ponto.ano}</td>
+                        <td className="px-4 py-1.5 text-right text-ms-ink">
+                          <Valor valor={ponto.valor} unidade={indicador.unidade} />
+                        </td>
+                        <td className="px-4 py-1.5">
+                          <span className="inline-flex items-center gap-1.5 text-xs text-ms-muted" title={ponto.fonte ?? undefined}>
+                            <span className={`h-1.5 w-1.5 rounded-full ${sinisa ? "bg-sem-positive" : "bg-sem-info"}`} aria-hidden="true" />
+                            {sinisa ? "SINISA" : "SNIS"}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
     </>
   );

@@ -92,6 +92,8 @@ export function MiniMapaMunicipio({ codigoIbge, municipio, notas, className }: P
           key={path.codigo}
           d={path.d}
           fill={notas ? corDoMunicipio(path.codigo, notas) : path.codigo === codigoIbge ? "var(--seq-4)" : "var(--color-line)"}
+          // Com a escala de notas, os vizinhos ficam esmaecidos para o município selecionado se destacar.
+          fillOpacity={notas && path.codigo !== codigoIbge ? 0.5 : 1}
           stroke="var(--color-surface)"
           strokeWidth={0.6}
           vectorEffect="non-scaling-stroke"

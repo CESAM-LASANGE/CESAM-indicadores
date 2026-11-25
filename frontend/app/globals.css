@@ -302,6 +302,10 @@
 
   /* CP-10 Painel lateral (série histórica) */
   .painel-lateral {
+    animation: painel-deslizar 200ms ease-out both;
+  }
+
+  .painel-fundo {
     animation: painel-entrada 200ms ease-out both;
   }
 
@@ -321,6 +325,18 @@
 
   to {
     opacity: 1;
+  }
+}
+
+@keyframes painel-deslizar {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
   }
 }
 
